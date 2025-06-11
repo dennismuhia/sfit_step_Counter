@@ -1,0 +1,21 @@
+name: step_counter
+description: "A new Flutter package project."
+version: 0.0.1
+homepage: https://github.com/dennismuhia/sfit_step_Counter.git
+
+
+environment:
+  sdk: ^3.5.4
+  flutter: ">=1.17.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  sensors_plus: ^4.0.0 
+  # step_counter:
+  #  path: ../step_counter  # adjust path as needed 
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
