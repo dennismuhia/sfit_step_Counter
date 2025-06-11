@@ -1,3 +1,5 @@
+#### 📄 `CHANGELOG.md`
+```md
 ## 0.0.1
 
-* TODO: Describe initial release.
+- Initial release with step counting support.

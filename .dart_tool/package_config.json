@@ -188,13 +188,13 @@
       "languageVersion": "3.3"
     },
     {
-      "name": "step_counter",
+      "name": "sfit_step_counter",
       "rootUri": "../",
       "packageUri": "lib/",
       "languageVersion": "3.5"
     }
   ],
-  "generated": "2025-06-11T11:12:57.502504Z",
+  "generated": "2025-06-11T11:31:18.856147Z",
   "generator": "pub",
   "generatorVersion": "3.5.4",
   "flutterRoot": "file:///Users/esgraygroupcompanyltd/Downloads/flutter",
