@@ -1,6 +1,6 @@
 # Step Counter
 
-A simple Flutter package to count steps using the device accelerometer.
+A light weight package to help you count steps on your app using gyrometer and Kalmans algorithm, i made this as a improvement to healt and pedometer after i discovered they were being discontinued or crashing on some phones. Thank you for downloading and enjoy coding 😊.
 
 ## Features
 
