@@ -1,6 +1,6 @@
 name: sfit_step_counter
 description: "Step Counter is a lightweight Flutter package that detects steps in real-time using the accelerometer via sensors_plus."
-version: 0.0.12
+version: 0.0.13
 homepage: https://github.com/dennismuhia/sfit_step_Counter.git
 
 
