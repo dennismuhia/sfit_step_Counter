@@ -1,126 +1,179 @@
 # 🏃 Step Counter
 
-A lightweight Flutter package to help you **count steps using the device's gyroscope and Kalman filtering**. This package is a modern alternative to deprecated or unstable step tracking packages like `health` and `pedometer`, which often crash on certain devices.
-
-Built with simplicity, performance, and compatibility in mind.
+A lightweight step counting utility that uses both native Android step detection (via `EventChannel`) and an accelerometer-based fallback enhanced with Kalman filtering and pedestrian status detection. It also estimates walking speed and calories burned.
 
 ---
 
-## 🚀 Features
+### ✅ Features
 
-* 📱 Step detection using [`sensors_plus`](https://pub.dev/packages/sensors_plus)
-* 📊 Real-time step stream
-* 🔁 Simple API: `start()`, `stop()`, `reset()`
-* 🔥 Calculates:
-
-  * Total **steps**
-  * **Calories burned**
-  * **Walking speed (km/h)**
-* ⚙️ Lightweight Kalman filter for noise reduction
-* ✅ No activity recognition dependency required
+* Native step counting on Android
+* Accelerometer fallback logic with filtering
+* Real-time pedestrian status (`walking` / `stopped`)
+* Calories burned estimation
+* Walking speed calculation (km/h)
+* Persistent step storage with `SharedPreferences`
+* Background execution with `flutter_background`
 
 ---
 
-## 🧪 Usage
+## 🚀 Getting Started
 
-```dart
-import 'package:sfit_step_counter/sfit_step_counter.dart';
+### 1. ⚙️ Add the dependencies
 
-final stepCounter = StepCounter();
-
-await stepCounter.init(weightKg: 68, heightMeters: 1.72);
-
-stepCounter.start();
-
-stepCounter.stepStream.listen((steps) {
-  print('Steps: $steps');
-  print('Calories: ${stepCounter.caloriesBurned.toStringAsFixed(2)} kcal');
-  print('Speed: ${stepCounter.walkingSpeedKmh.toStringAsFixed(2)} km/h');
-});
+```yaml
+dependencies:
+  sensors_plus: ^3.0.3
+  shared_preferences: ^2.2.2
+  flutter_background: ^1.0.0
+  permission_handler: ^11.3.0
 ```
 
 ---
 
-## 🔐 Permissions
+### 2. 📱 Android Configuration
 
-You’ll need to request the **activity recognition** permission:
-
-```dart
-import 'package:permission_handler/permission_handler.dart';
-
-Future<void> requestPermissions() async {
-  if (await Permission.activityRecognition.request().isGranted) {
-    // Permission granted
-  }
-}
-```
-
----
-
-## 🛠 Android Setup
-
-Update your **AndroidManifest.xml**:
+In `android/app/src/main/AndroidManifest.xml`, add:
 
 ```xml
-<!-- Required Permissions -->
 <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
 <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
 <uses-permission android:name="android.permission.WAKE_LOCK" />
 <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 ```
 
-Inside the `<application>` tag:
+Inside `<application>`:
 
 ```xml
-<application
-    android:label="your_app_name"
-    android:icon="@mipmap/ic_launcher"
-    android:usesCleartextTraffic="true">
+<service android:name="com.pravera.flutter_background.FlutterBackgroundService"
+         android:enabled="true"
+         android:exported="false"/>
 
-    <!-- Required for background execution -->
-    <service
-        android:name="com.pravera.flutter_background.FlutterBackgroundService"
-        android:enabled="true"
-        android:exported="false"/>
-
-    <receiver
-        android:enabled="true"
-        android:exported="true"
-        android:permission="android.permission.RECEIVE_BOOT_COMPLETED">
-        <intent-filter>
-            <action android:name="android.intent.action.BOOT_COMPLETED"/>
-            <action android:name="android.intent.action.QUICKBOOT_POWERON"/>
-            <action android:name="com.htc.intent.action.QUICKBOOT_POWERON"/>
-        </intent-filter>
-    </receiver>
-</application>
+<receiver android:enabled="true"
+          android:exported="true"
+          android:permission="android.permission.RECEIVE_BOOT_COMPLETED">
+  <intent-filter>
+    <action android:name="android.intent.action.BOOT_COMPLETED"/>
+    <action android:name="android.intent.action.QUICKBOOT_POWERON"/>
+    <action android:name="com.htc.intent.action.QUICKBOOT_POWERON"/>
+  </intent-filter>
+</receiver>
 ```
 
-Also update `android/app/build.gradle`:
+Also in `android/app/build.gradle`:
 
 ```gradle
 defaultConfig {
-  minSdkVersion 21
-  // other configs...
+    minSdkVersion 21
+    ...
 }
 ```
 
 ---
 
-## 📦 Installing
+### 3. 📋 Request Permissions
 
-Add to your `pubspec.yaml`:
+```dart
+import 'package:permission_handler/permission_handler.dart';
 
-```yaml
-dependencies:
-  sfit_step_counter: ^0.0.11
+Future<void> requestPermissions() async {
+  await Permission.activityRecognition.request();
+}
+```
+
+Call `requestPermissions()` before starting the step counter.
+
+---
+
+## 🔧 Initialization & Usage
+
+### Step 1: Import the package
+
+```dart
+import 'package:your_package_name/step_counter.dart';
+```
+
+> Replace `your_package_name` with the correct import path if this is inside your app or a custom package.
+
+---
+
+### Step 2: Initialize
+
+```dart
+final stepCounter = StepCounter();
+
+await stepCounter.init(weightKg: 68, heightMeters: 1.72);
 ```
 
 ---
 
-## 🙏 Thanks
+### Step 3: Start the Step Counter
 
-Thank you for using this package! If you find it useful, feel free to [like on pub.dev](https://pub.dev/packages/sfit_step_counter) and share with fellow Flutter developers.
+```dart
+await stepCounter.start();
+```
 
-Happy coding! 😊
+---
 
+### Step 4: Listen for updates
+
+```dart
+stepCounter.stepStream.listen((StepData data) {
+  print('Steps: ${data.steps}');
+  print('Status: ${data.status}');
+  print('Calories: ${data.calories.toStringAsFixed(2)} kcal');
+  print('Speed: ${data.speed.toStringAsFixed(2)} km/h');
+});
+```
+
+---
+
+### Step 5: Stop / Reset
+
+```dart
+await stepCounter.stop();
+await stepCounter.reset();
+```
+
+---
+
+## 📦 `StepData` DTO
+
+This object is returned in the stream:
+
+```dart
+class StepData {
+  final int steps;
+  final String status; // "walking" or "stopped"
+  final double calories;
+  final double speed; // km/h
+}
+```
+
+---
+
+## 🧪 Example Integration
+
+```dart
+void main() async {
+  final stepCounter = StepCounter();
+
+  await requestPermissions();
+  await stepCounter.init(weightKg: 70, heightMeters: 1.75);
+  await stepCounter.start();
+
+  stepCounter.stepStream.listen((data) {
+    print('Steps: ${data.steps}');
+    print('Calories: ${data.calories}');
+    print('Speed: ${data.speed}');
+    print('Status: ${data.status}');
+  });
+}
+```
+
+---
+
+## 📝 Notes
+
+* On Android, this uses native `EventChannel` for accurate steps.
+* On iOS or unsupported platforms, it falls back to accelerometer-based detection.
+* Calories and speed calculations are estimates, not medical-grade.

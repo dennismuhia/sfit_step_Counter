@@ -1,26 +1,23 @@
 import 'dart:async';
 import 'dart:math';
+import 'dart:io' show Platform;
+
+import 'package:flutter/services.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_background/flutter_background.dart';
 
-class KalmanFilter {
-  double q, r, x, p, k;
-  KalmanFilter({
-    this.q = 0.001,
-    this.r = 0.1,
-    this.x = 0.0,
-    this.p = 1.0,
-    this.k = 0.0,
-  });
+const _STILL = 'stopped';
+const _MOVING = 'walking';
 
-  double filter(double measurement) {
-    p += q;
-    k = p / (p + r);
-    x += k * (measurement - x);
-    p *= (1 - k);
-    return x;
-  }
+class StepData {
+  final int steps;
+  final double calories;
+  final double speedKmh;
+  final String status;
+  final DateTime time;
+
+  StepData(this.steps, this.calories, this.speedKmh, this.status, this.time);
 }
 
 class StepCounter {
@@ -28,53 +25,27 @@ class StepCounter {
   factory StepCounter() => _instance;
   StepCounter._internal();
 
-  // smoothing & detection
-  final KalmanFilter _kalman = KalmanFilter();
-  final List<double> _buffer = [];
-  final int _bufferSize = 6;
-  final double upperThr = 11.5;
-  final double lowerThr = 9.0;
-  final int _minDelayMs = 300;
+  static const EventChannel _stepDetectionChannel = EventChannel('step_detection');
+  static const EventChannel _stepCountChannel = EventChannel('step_count');
 
   int _steps = 0;
-  DateTime _lastStepTime = DateTime.now().subtract(Duration(seconds: 1));
-  bool _stepDetected = false;
-
-  // user data
   double _userWeightKg = 70;
-  double _userHeightM = 1.75;
-  late double _strideLengthM;
-
+  double _userHeightMeters = 1.75;
+  late double _strideLengthMeters;
   DateTime? _startTime;
-  StreamSubscription<AccelerometerEvent>? _sub;
-  final _stepCtrl = StreamController<int>.broadcast();
 
-  Stream<int> get stepStream => _stepCtrl.stream;
-  int get currentStep => _steps;
+  String _status = _STILL;
+  Timer? _statusTimer;
 
-  double get caloriesBurned {
-    final dist = _steps * _strideLengthM;
-    return _userWeightKg * 0.57 * (dist / 1000);
-  }
+  final _stepStreamController = StreamController<StepData>.broadcast();
+  Stream<StepData> get stepStream => _stepStreamController.stream;
 
-  double get walkingSpeedKmh {
-    if (_startTime == null) return 0;
-    final seconds = DateTime.now().difference(_startTime!).inSeconds;
-    if (seconds == 0) return 0;
-    final dist = _steps * _strideLengthM;
-    return dist / seconds * 3.6;
-  }
-
-  Future<void> init({
-    required double weightKg,
-    required double heightMeters,
-  }) async {
+  Future<void> init({required double weightKg, required double heightMeters}) async {
     _userWeightKg = weightKg;
-    _userHeightM = heightMeters;
-    _strideLengthM = _userHeightM * 0.415;
+    _userHeightMeters = heightMeters;
+    _strideLengthMeters = _userHeightMeters * 0.415;
     final prefs = await SharedPreferences.getInstance();
     _steps = prefs.getInt('step_count') ?? 0;
-    _stepCtrl.add(_steps);
   }
 
   Future<void> _saveSteps() async {
@@ -82,52 +53,83 @@ class StepCounter {
     await prefs.setInt('step_count', _steps);
   }
 
-  double _movingAvg(double v) {
-    _buffer.add(v);
-    if (_buffer.length > _bufferSize) {
-      _buffer.removeAt(0);
-    }
-    return _buffer.reduce((a, b) => a + b) / _buffer.length;
+  double get caloriesBurned => _steps * _strideLengthMeters / 1000 * _userWeightKg * 0.57;
+
+  double get walkingSpeedKmh {
+    if (_startTime == null) return 0;
+    final duration = DateTime.now().difference(_startTime!).inSeconds;
+    if (duration == 0) return 0;
+    final meters = _steps * _strideLengthMeters;
+    return (meters / duration) * 3.6;
   }
 
   Future<void> start() async {
-    // enable background
-    final ok = await FlutterBackground.initialize(
+    final initialized = await FlutterBackground.initialize(
       androidConfig: const FlutterBackgroundAndroidConfig(
         notificationTitle: "Step Counter Running",
-        notificationText: "Tracking steps in background",
+        notificationText: "Tracking your steps in the background",
         notificationImportance: AndroidNotificationImportance.normal,
       ),
     );
-    if (ok) {
+    if (initialized) {
       await FlutterBackground.enableBackgroundExecution();
     }
 
     _startTime = DateTime.now();
-    _sub = accelerometerEventStream().listen((event) {
-      final now = DateTime.now();
-      final rawMag = sqrt(
-        event.x * event.x + event.y * event.y + event.z * event.z,
-      );
-      final smooth = _kalman.filter(_movingAvg(rawMag));
-      final dt = now.difference(_lastStepTime).inMilliseconds;
 
-      if (smooth > upperThr &&
-          !_stepDetected &&
-          dt > _minDelayMs) {
+    if (Platform.isAndroid) {
+      _startNativeListeners();
+    } else {
+      _startAccelerometerFallback();
+    }
+  }
+
+  void _startNativeListeners() {
+    _stepCountChannel.receiveBroadcastStream().listen((event) {
+      _steps = event as int;
+      _emitStepData();
+      _saveSteps();
+    });
+
+    _stepDetectionChannel.receiveBroadcastStream().listen((event) {
+      _handleStatus(event);
+    });
+  }
+
+  void _startAccelerometerFallback() {
+    accelerometerEventStream().listen((event) {
+      final magnitude = sqrt(event.x * event.x + event.y * event.y + event.z * event.z);
+      if (magnitude > 12.0) {
         _steps++;
-        _lastStepTime = now;
-        _stepDetected = true;
-        _stepCtrl.add(_steps);
+        _handleStatus(1);
+        _emitStepData();
         _saveSteps();
-      } else if (smooth < lowerThr) {
-        _stepDetected = false;
       }
     });
   }
 
+  void _handleStatus(int event) {
+    _statusTimer?.cancel();
+
+    if (event == 1 && _status == _STILL) {
+      _status = _MOVING;
+    }
+
+    _statusTimer = Timer(Duration(seconds: 2), () {
+      _status = _STILL;
+      _emitStepData();
+    });
+  }
+
+  void _emitStepData() {
+    _stepStreamController.add(
+      StepData(_steps, caloriesBurned, walkingSpeedKmh, _status, DateTime.now()),
+    );
+  }
+
   Future<void> stop() async {
-    await _sub?.cancel();
+    _statusTimer?.cancel();
+    _statusTimer = null;
     if (FlutterBackground.isBackgroundExecutionEnabled) {
       await FlutterBackground.disableBackgroundExecution();
     }
@@ -135,7 +137,9 @@ class StepCounter {
 
   Future<void> reset() async {
     _steps = 0;
-    _stepCtrl.add(_steps);
+    _emitStepData();
     await _saveSteps();
   }
+
+  int get currentStep => _steps;
 }
