@@ -1,6 +1,6 @@
 # 🏃‍♂️ Step Counter
 
-A lightweight, reliable Flutter step counting utility that uses **native Android step detection** (via `EventChannel`) and **accelerometer-based fallback** enhanced with **Kalman filtering** and **pedestrian status detection**. Includes real-time updates for steps, walking speed, and calories burned.
+A lightweight, reliable Flutter step counting utility that uses **native Android step detection** (via `EventChannel`) and **accelerometer-based fallback** enhanced with **Kalman filtering**, **step cadence monitoring**, **pedestrian activity classification**, and **geofenced auto-checkout**. Includes real-time updates for steps, speed, calories, cadence, and movement status.
 
 ---
 
@@ -9,11 +9,15 @@ A lightweight, reliable Flutter step counting utility that uses **native Android
 * ✅ Native Android step detection
 * ✅ Accelerometer fallback logic with filtering
 * ✅ Real-time step stream
-* ✅ Walking status: `walking` / `stopped`
+* ✅ Walking status: `walking` / `stopped` / `running`
 * ✅ Calories burned estimation
 * ✅ Walking speed calculation (km/h)
+* ✅ Step cadence tracking (steps/min)
+* ✅ Geofenced auto-checkout when exiting gym area
 * ✅ Persistent step tracking with `SharedPreferences`
 * ✅ Background execution with `flutter_background`
+* ✅ User-defined weight and height for calorie/speed accuracy
+* ✅ iOS Core Motion support (Coming Soon)
 
 ---
 
@@ -29,6 +33,7 @@ dependencies:
   shared_preferences: ^2.2.2
   flutter_background: ^1.0.0
   permission_handler: ^11.3.0
+  geolocator: ^10.0.0
 ```
 
 ---
@@ -44,6 +49,7 @@ Add the following **outside** the `<application>` tag:
 <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
 <uses-permission android:name="android.permission.WAKE_LOCK"/>
 <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
 ```
 
 Inside the `<application>` tag:
@@ -84,10 +90,10 @@ Add the following before starting the counter:
 import 'package:permission_handler/permission_handler.dart';
 
 Future<void> requestPermissions() async {
-  final status = await Permission.activityRecognition.request();
-  if (!status.isGranted) {
-    throw Exception("Activity Recognition permission denied");
-  }
+  await [
+    Permission.activityRecognition,
+    Permission.location,
+  ].request();
 }
 ```
 
@@ -98,12 +104,10 @@ Future<void> requestPermissions() async {
 ### ✅ Step 1: Import and Initialize
 
 ```dart
-import 'package:your_project/step_counter.dart';
-
 final stepCounter = StepCounter();
 
 await requestPermissions();
-await stepCounter.init(weightKg: 70, heightMeters: 1.75);
+await stepCounter.init(weightKg: 72, heightMeters: 1.78); // user input values
 ```
 
 ---
@@ -119,10 +123,12 @@ await stepCounter.start();
 ### ✅ Step 3: Listen to Updates
 
 ```dart
-stepCounter.stepStream.listen((steps) {
-  print('Steps: $steps');
-  print('Calories: ${stepCounter.caloriesBurned.toStringAsFixed(2)} kcal');
-  print('Speed: ${stepCounter.walkingSpeedKmh.toStringAsFixed(2)} km/h');
+stepCounter.stepStream.listen((StepData data) {
+  print('Steps: ${data.steps}');
+  print('Calories: ${data.calories.toStringAsFixed(2)} kcal');
+  print('Speed: ${data.speedKmh.toStringAsFixed(2)} km/h');
+  print('Cadence: ${data.cadence.toStringAsFixed(2)} steps/min');
+  print('Status: ${data.status}');
 });
 ```
 
@@ -137,29 +143,37 @@ await stepCounter.reset();
 
 ---
 
-## 📦 `StepData` DTO (Optional)
-
-If you choose to stream richer objects instead of just step counts:
+## 📦 `StepData` DTO
 
 ```dart
 class StepData {
   final int steps;
-  final String status; // "walking" or "stopped"
   final double calories;
-  final double speed; // in km/h
+  final double speedKmh;
+  final String status;
+  final double cadence;
+  final DateTime time;
+
+  StepData(this.steps, this.calories, this.speedKmh, this.status, this.cadence, this.time);
 }
 ```
 
-Update the stream to emit `StepData` if needed.
+---
+
+## 📍 Geofencing (Auto-Checkout)
+
+* The system checks every 30 seconds if the user has moved **outside a 50-meter radius** from the gym.
+* When detected, it automatically stops the step counter (simulating checkout).
+* You can customize the `_gymLatitude`, `_gymLongitude`, and `_geofenceRadiusMeters` fields.
 
 ---
 
 ## 💡 Tips
 
-* 📱 Keep the app running in background using `flutter_background`.
-* ✅ Ensure permissions are granted, or step tracking will not work.
-* 🧪 You can add unit tests using mock streams if needed.
-* 🧠 Use [Google’s Activity Recognition API](https://developers.google.com/location-context/activity-recognition) for more advanced use cases.
+* ✅ Keep the app running in background using `flutter_background`.
+* 🎯 Pass user height and weight for better stride and calorie estimation.
+* 🧠 ML logic uses cadence + motion patterns to enhance walking status.
+* 📍 Test geofence behavior by simulating GPS position changes.
 
 ---
 
@@ -167,9 +181,9 @@ Update the stream to emit `StepData` if needed.
 
 | Problem                          | Solution                                                                        |
 | -------------------------------- | ------------------------------------------------------------------------------- |
-| Steps not counting               | Ensure ACTIVITY\_RECOGNITION permission is granted.                             |
-| App stops counting in background | Ensure `flutter_background` is properly configured and active.                  |
-| Counter is too sensitive         | Adjust debounce threshold (e.g., time between steps or magnitude) in the logic. |
+| Steps not counting               | Ensure ACTIVITY_RECOGNITION and LOCATION permissions are granted.              |
+| App stops counting in background | Ensure `flutter_background` is configured and active.                           |
+| Counter is too sensitive         | Adjust fallback accelerometer threshold if needed.                             |
 
 ---
 
@@ -180,13 +194,15 @@ void main() async {
   final stepCounter = StepCounter();
 
   await requestPermissions();
-  await stepCounter.init(weightKg: 70, heightMeters: 1.75);
+  await stepCounter.init(weightKg: 68, heightMeters: 1.72); // example user data
   await stepCounter.start();
 
-  stepCounter.stepStream.listen((steps) {
-    print('Steps: $steps');
-    print('Calories: ${stepCounter.caloriesBurned.toStringAsFixed(2)} kcal');
-    print('Speed: ${stepCounter.walkingSpeedKmh.toStringAsFixed(2)} km/h');
+  stepCounter.stepStream.listen((StepData data) {
+    print('Steps: ${data.steps}');
+    print('Calories: ${data.calories.toStringAsFixed(2)} kcal');
+    print('Speed: ${data.speedKmh.toStringAsFixed(2)} km/h');
+    print('Status: ${data.status}');
+    print('Cadence: ${data.cadence.toStringAsFixed(2)} steps/min');
   });
 }
 ```
@@ -195,19 +211,19 @@ void main() async {
 
 ## 🔮 Coming Soon
 
-* [ ] iOS support
-* [ ] Step goals
-* [ ] Integration with Google Fit / Apple Health
-* [ ] Weekly/monthly stats
-* [ ] Notification badge with daily steps
+* [x] iOS Core Motion Support (partial work in progress)
+* [ ] Step goals and daily targets
+* [ ] Charts, weekly/monthly reports
+* [ ] Firebase sync & notification triggers
+* [ ] Google Fit / Apple Health sync
 
 ---
 
 ## 🤝 Contributing
 
-Feel free to submit issues, improvements, or PRs! You can also ask for:
+Feel free to fork the repo, submit PRs, or report issues.
+You can request:
 
-* GetX integration (`StepsController`)
-* ML-based activity recognition
-* Chart display of progress
-
+* Flutter + GetX Controller Integration
+* ML model customization for step vs run classification
+* Integration with Wear OS / Android watches
