@@ -1,10 +1,5 @@
 # This is a generated file; do not edit or check into version control.
 flutter_background=/Users/esgraygroupcompanyltd/.pub-cache/hosted/pub.dev/flutter_background-1.3.0+1/
-geolocator=/Users/esgraygroupcompanyltd/.pub-cache/hosted/pub.dev/geolocator-14.0.1/
-geolocator_android=/Users/esgraygroupcompanyltd/.pub-cache/hosted/pub.dev/geolocator_android-5.0.1+1/
-geolocator_apple=/Users/esgraygroupcompanyltd/.pub-cache/hosted/pub.dev/geolocator_apple-2.3.13/
-geolocator_web=/Users/esgraygroupcompanyltd/.pub-cache/hosted/pub.dev/geolocator_web-4.1.3/
-geolocator_windows=/Users/esgraygroupcompanyltd/.pub-cache/hosted/pub.dev/geolocator_windows-0.2.5/
 path_provider_linux=/Users/esgraygroupcompanyltd/.pub-cache/hosted/pub.dev/path_provider_linux-2.2.1/
 path_provider_windows=/Users/esgraygroupcompanyltd/.pub-cache/hosted/pub.dev/path_provider_windows-2.3.0/
 sensors_plus=/Users/esgraygroupcompanyltd/.pub-cache/hosted/pub.dev/sensors_plus-6.1.1/

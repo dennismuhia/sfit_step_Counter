@@ -1,5 +1,3 @@
-// Enhanced Step Counter with ML, Cadence, Geofencing, and iOS support
-
 import 'dart:async';
 import 'dart:math';
 import 'dart:io' show Platform;
@@ -7,7 +5,6 @@ import 'package:flutter/services.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_background/flutter_background.dart';
-import 'package:geolocator/geolocator.dart';
 
 const _STILL = 'stopped';
 const _MOVING = 'walking';
@@ -21,7 +18,8 @@ class StepData {
   final double cadence;
   final DateTime time;
 
-  StepData(this.steps, this.calories, this.speedKmh, this.status, this.cadence, this.time);
+  StepData(this.steps, this.calories, this.speedKmh, this.status, this.cadence,
+      this.time);
 }
 
 class StepCounter {
@@ -29,55 +27,78 @@ class StepCounter {
   factory StepCounter() => _instance;
   StepCounter._internal();
 
-  static const EventChannel _stepDetectionChannel = EventChannel('step_detection');
+  static const EventChannel _stepDetectionChannel =
+      EventChannel('step_detection');
   static const EventChannel _stepCountChannel = EventChannel('step_count');
 
-  int _steps = 0;
-  List<DateTime> _stepTimestamps = [];
+  int _totalSteps = 0;
+  final List<DateTime> _todayStepTimestamps = [];
+
   double userWeightKg = 70;
   double userHeightMeters = 1.75;
   DateTime? _startTime;
-
   String _status = _STILL;
   Timer? _statusTimer;
-  Timer? _geofenceTimer;
 
   final _stepStreamController = StreamController<StepData>.broadcast();
   Stream<StepData> get stepStream => _stepStreamController.stream;
 
-  // Geofence (mock gym location)
-  final double _gymLatitude = -1.2921;
-  final double _gymLongitude = 36.8219;
-  final double _geofenceRadiusMeters = 50.0;
-
   double get strideLengthMeters => userHeightMeters * 0.415;
 
-  Future<void> init({required double weightKg, required double heightMeters}) async {
+  Future<void> init({
+    required double weightKg,
+    required double heightMeters,
+  }) async {
     userWeightKg = weightKg;
     userHeightMeters = heightMeters;
-    final prefs = await SharedPreferences.getInstance();
-    _steps = prefs.getInt('step_count') ?? 0;
+    await _loadState();
   }
 
-  Future<void> _saveSteps() async {
+  Future<void> _saveState() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt('step_count', _steps);
+    await prefs.setInt('total_steps', _totalSteps);
+
+    final timestampStrings =
+        _todayStepTimestamps.map((dt) => dt.toIso8601String()).toList();
+    await prefs.setStringList('today_timestamps', timestampStrings);
   }
 
-  double get caloriesBurned => _steps * strideLengthMeters / 1000 * userWeightKg * 0.57;
+  Future<void> _loadState() async {
+    final prefs = await SharedPreferences.getInstance();
+    _totalSteps = prefs.getInt('total_steps') ?? 0;
+
+    final timestampStrings = prefs.getStringList('today_timestamps') ?? [];
+    _todayStepTimestamps.clear();
+    _todayStepTimestamps.addAll(
+        timestampStrings.map((s) => DateTime.tryParse(s)).whereType<DateTime>());
+
+    _cleanupOldTimestamps();
+    _emitStepData(DateTime.now());
+  }
+
+  void _cleanupOldTimestamps() {
+    final now = DateTime.now();
+    _todayStepTimestamps.removeWhere(
+        (ts) => now.difference(ts).inDays > 31); // keep last 31 days
+  }
+
+  double get caloriesBurned =>
+      _totalSteps * strideLengthMeters / 1000 * userWeightKg * 0.57;
 
   double get walkingSpeedKmh {
     if (_startTime == null) return 0;
     final duration = DateTime.now().difference(_startTime!).inSeconds;
     if (duration == 0) return 0;
-    final meters = _steps * strideLengthMeters;
+    final meters = _totalSteps * strideLengthMeters;
     return (meters / duration) * 3.6;
   }
 
   double get cadence {
-    if (_stepTimestamps.length < 2) return 0;
-    final duration = _stepTimestamps.last.difference(_stepTimestamps.first).inMinutes;
-    return duration == 0 ? 0 : (_stepTimestamps.length / duration);
+    if (_todayStepTimestamps.length < 2) return 0;
+    final duration = _todayStepTimestamps.last
+        .difference(_todayStepTimestamps.first)
+        .inMinutes;
+    return duration == 0 ? 0 : (_todayStepTimestamps.length / duration);
   }
 
   Future<void> start() async {
@@ -91,7 +112,6 @@ class StepCounter {
     if (initialized) await FlutterBackground.enableBackgroundExecution();
 
     _startTime = DateTime.now();
-    _startGeofenceMonitor();
 
     if (Platform.isAndroid) {
       _startNativeListeners();
@@ -102,10 +122,11 @@ class StepCounter {
 
   void _startNativeListeners() {
     _stepCountChannel.receiveBroadcastStream().listen((event) {
-      _steps = event as int;
-      _stepTimestamps.add(DateTime.now());
-      _emitStepData();
-      _saveSteps();
+      _totalSteps = event as int;
+      _todayStepTimestamps.add(DateTime.now());
+      _cleanupOldTimestamps();
+      _emitStepData(DateTime.now());
+      _saveState();
     });
 
     _stepDetectionChannel.receiveBroadcastStream().listen((event) {
@@ -115,63 +136,61 @@ class StepCounter {
 
   void _startAccelerometerFallback() {
     accelerometerEventStream().listen((event) {
-      final magnitude = sqrt(event.x * event.x + event.y * event.y + event.z * event.z);
+      final magnitude =
+          sqrt(event.x * event.x + event.y * event.y + event.z * event.z);
       if (magnitude > 12.0) {
-        _steps++;
-        _stepTimestamps.add(DateTime.now());
+        _totalSteps++;
+        _todayStepTimestamps.add(DateTime.now());
+        _cleanupOldTimestamps();
         _handleStatus(1);
-        _emitStepData();
-        _saveSteps();
+        _emitStepData(DateTime.now());
+        _saveState();
       }
     });
   }
 
   void _handleStatus(int event) {
     _statusTimer?.cancel();
-    if (event == 1 && _status != _MOVING) {
-      _status = _MOVING;
+
+    if (event == 1) {
+      final currentSpeed = walkingSpeedKmh;
+      _status = (currentSpeed > 6.0) ? _RUNNING : _MOVING;
     }
-    _statusTimer = Timer(Duration(seconds: 2), () {
+
+    _statusTimer = Timer(const Duration(seconds: 2), () {
       _status = _STILL;
-      _emitStepData();
+      _emitStepData(DateTime.now());
     });
   }
 
-  void _emitStepData() {
+  void _emitStepData(DateTime timestamp) {
     _stepStreamController.add(
-      StepData(_steps, caloriesBurned, walkingSpeedKmh, _status, cadence, DateTime.now()),
+      StepData(
+        _totalSteps,
+        caloriesBurned,
+        walkingSpeedKmh,
+        _status,
+        cadence,
+        timestamp,
+      ),
     );
-  }
-
-  void _startGeofenceMonitor() {
-    _geofenceTimer = Timer.periodic(Duration(seconds: 30), (_) async {
-      final pos = await Geolocator.getCurrentPosition();
-      final distance = Geolocator.distanceBetween(
-        pos.latitude, pos.longitude, _gymLatitude, _gymLongitude);
-
-      if (distance > _geofenceRadiusMeters) {
-        await stop(); // Simulate auto-checkout
-        print("User exited gym geofence. Auto-checkout.");
-      }
-    });
   }
 
   Future<void> stop() async {
     _statusTimer?.cancel();
-    _geofenceTimer?.cancel();
     if (FlutterBackground.isBackgroundExecutionEnabled) {
       await FlutterBackground.disableBackgroundExecution();
     }
   }
 
   Future<void> reset() async {
-    _steps = 0;
-    _stepTimestamps.clear();
-    _emitStepData();
-    await _saveSteps();
+    _totalSteps = 0;
+    _todayStepTimestamps.clear();
+    _emitStepData(DateTime.now());
+    await _saveState();
   }
 
-  int get currentStep => _steps;
+  int get currentStep => _totalSteps;
 
   void updateUserWeight(double weightKg) {
     userWeightKg = weightKg;
@@ -179,5 +198,28 @@ class StepCounter {
 
   void updateUserHeight(double heightMeters) {
     userHeightMeters = heightMeters;
+  }
+
+  int get todaySteps {
+    final now = DateTime.now();
+    return _todayStepTimestamps
+        .where((ts) =>
+            ts.year == now.year && ts.month == now.month && ts.day == now.day)
+        .length;
+  }
+
+  int get weeklySteps {
+    final now = DateTime.now();
+    final oneWeekAgo = now.subtract(const Duration(days: 7));
+    return _todayStepTimestamps
+        .where((ts) => ts.isAfter(oneWeekAgo) && ts.isBefore(now))
+        .length;
+  }
+
+  int get monthlySteps {
+    final now = DateTime.now();
+    return _todayStepTimestamps
+        .where((ts) => ts.year == now.year && ts.month == now.month)
+        .length;
   }
 }
