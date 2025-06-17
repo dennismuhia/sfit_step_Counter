@@ -1,6 +1,6 @@
 name: sfit_step_counter
 description: A lightweight Flutter package that detects steps in real-time using sensors_plus and provides calories, cadence, geofencing, and walking state.
-version: 0.0.17
+version: 0.0.18
 homepage: https://github.com/dennismuhia/sfit_step_counter
 
 environment:
