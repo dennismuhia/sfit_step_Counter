@@ -1,5 +1,5 @@
 #### 📄 `CHANGELOG.md`
 ```md
-## 0.0.18
+## 0.0.19
 
 - Initial release with step counting support.

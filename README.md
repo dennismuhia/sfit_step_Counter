@@ -1,6 +1,6 @@
 # 🏃‍♂️ Step Counter
 
-A lightweight, reliable Flutter step counting utility that uses **native Android step detection** (via `EventChannel`) and **accelerometer-based fallback** enhanced with **Kalman filtering**, **step cadence monitoring**, **pedestrian activity classification**, and **geofenced auto-checkout**. Includes real-time updates for steps, speed, calories, cadence, and movement status.
+A lightweight, reliable Flutter step counting utility that uses **native Android step detection** (via `EventChannel`) and **accelerometer-based fallback** enhanced with **moving average filtering**, **step cadence monitoring**, **pedestrian activity classification**, and **geofenced auto-checkout**. Includes real-time updates for steps, speed, calories, cadence, and movement status.
 
 ---
 
@@ -8,6 +8,8 @@ A lightweight, reliable Flutter step counting utility that uses **native Android
 
 * ✅ Native Android step detection
 * ✅ Accelerometer fallback logic with filtering
+* ✅ Moving average filtering for noise reduction
+* ✅ Debounced step detection logic
 * ✅ Real-time step stream
 * ✅ Walking status: `walking` / `stopped` / `running`
 * ✅ Calories burned estimation
@@ -126,11 +128,11 @@ await stepCounter.start();
 
 ```dart
 stepCounter.stepStream.listen((StepData data) {
-  print('Steps: ${data.steps}');
-  print('Calories: ${data.calories.toStringAsFixed(2)} kcal');
-  print('Speed: ${data.speedKmh.toStringAsFixed(2)} km/h');
-  print('Cadence: ${data.cadence.toStringAsFixed(2)} steps/min');
-  print('Status: ${data.status}');
+  print('Steps: \${data.steps}');
+  print('Calories: \${data.calories.toStringAsFixed(2)} kcal');
+  print('Speed: \${data.speedKmh.toStringAsFixed(2)} km/h');
+  print('Cadence: \${data.cadence.toStringAsFixed(2)} steps/min');
+  print('Status: \${data.status}');
 });
 ```
 
@@ -176,6 +178,7 @@ class StepData {
 * 🎯 Pass user height and weight for better stride and calorie estimation.
 * 🧠 ML logic uses cadence + motion patterns to enhance walking status.
 * 📍 Test geofence behavior by simulating GPS position changes.
+* 📉 Moving average filters and debounce logic reduce false positives.
 
 ---
 
@@ -200,11 +203,11 @@ void main() async {
   await stepCounter.start();
 
   stepCounter.stepStream.listen((StepData data) {
-    print('Steps: ${data.steps}');
-    print('Calories: ${data.calories.toStringAsFixed(2)} kcal');
-    print('Speed: ${data.speedKmh.toStringAsFixed(2)} km/h');
-    print('Status: ${data.status}');
-    print('Cadence: ${data.cadence.toStringAsFixed(2)} steps/min');
+    print('Steps: \${data.steps}');
+    print('Calories: \${data.calories.toStringAsFixed(2)} kcal');
+    print('Speed: \${data.speedKmh.toStringAsFixed(2)} km/h');
+    print('Status: \${data.status}');
+    print('Cadence: \${data.cadence.toStringAsFixed(2)} steps/min');
   });
 }
 ```
@@ -231,4 +234,4 @@ You can request:
 * Integration with Wear OS / Android watches
 
 
-my name is Dennis Muhia and my email is dmuhia136@gmail.com
+My name is Dennis Muhia and my email is dmuhia136@gmail.com
